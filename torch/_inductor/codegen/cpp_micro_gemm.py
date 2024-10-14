@@ -740,15 +740,22 @@ inline void {{kernel_name}}_amx_kernel_{{num_rows}}_{{num_columns}}(
 # extra check for CppMicroBrgemm
 def check_brgemm_extra(config, m, n, k, alpha, num_threads):
     assert config.input_dtype == torch.half and config.output_dtype == torch.float
-    vnni_size = 2
-    # use brgemm for Half when amx_fp16 is supported
-    return torch.cpu._is_amx_fp16_supported() and k % vnni_size == 0 and alpha == 1
+    # BRGEMM supports non-amx cases when avx512_fp16 is supported
+    if torch.cpu._is_amx_fp16_supported():
+        vnni_size = 2
+        return k % vnni_size == 0 and alpha == 1
+    else:
+        return torch.cpu._is_avx512_fp16_supported() and alpha == 1
 
 
 @register_micro_gemm(
     *generate_gemm_config(
         VecAMX,
-        [(32, 32, 32), (48, 16, 32), (16, 48, 32)],
+        (
+            [(32, 32, 32), (48, 16, 32), (16, 48, 32)]
+            if torch.cpu._is_amx_fp16_supported()
+            else [(64, 64, 64), (32, 48, 64), (48, 32, 64)]
+        ),
         input_dtype=torch.half,
         output_dtype=torch.float,
         extra_check=check_brgemm_extra,
@@ -797,7 +804,10 @@ class CppMicroBrgemm(CppMicroGemm):
 
     def get_b_layout(self):
         assert self.input_dtype == torch.half
-        return LayoutType.VNNI2
+        if torch.cpu._is_amx_fp16_supported():
+            return LayoutType.VNNI2
+        else:
+            return LayoutType.NORMAL
 
 
 def create_micro_gemm(

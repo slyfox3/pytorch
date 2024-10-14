@@ -135,7 +135,9 @@ class BaseTestSelectAlgorithm(TestCase):
             self.assertEqual(counters["inductor"]["cpp_micro_gemm_amx_counter"], 0)
 
     def _check_brgemm_counter(self, vec_amx):
-        if vec_amx and torch.cpu._is_amx_fp16_supported():
+        if vec_amx and (
+            torch.cpu._is_amx_fp16_supported() or torch.cpu._is_avx512_fp16_supported()
+        ):
             self.assertTrue(counters["inductor"]["cpp_micro_brgemm_counter"] > 0)
         else:
             self.assertEqual(counters["inductor"]["cpp_micro_brgemm_counter"], 0)
@@ -823,6 +825,7 @@ class TestSelectAlgorithm(BaseTestSelectAlgorithm):
             self.common(mod, (v,), atol=atol, rtol=rtol)
         self.assertEqual(counters["inductor"]["select_algorithm_autotune"], 1)
         vec_amx = VecAMX()
+        # Currently brgemm config is only added for half
         if dtype == torch.half:
             self._check_brgemm_counter(vec_amx)
         else:
