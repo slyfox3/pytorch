@@ -20,6 +20,7 @@ import builtins
 import math
 import warnings
 import inspect
+import functools
 
 __all__ = ["PythonCode", "CodeGen", "Graph"]
 
@@ -36,6 +37,8 @@ _origin_type_map = {
     frozenset: FrozenSet,
     tuple: Tuple,
 }
+
+_legal_ops = dict.fromkeys(['call_function', 'call_method', 'get_attr', 'call_module', 'placeholder', 'output'])
 
 
 # Signature for functions thattransforms the body (`list[str]`) of the
@@ -84,14 +87,11 @@ def _snake_case(s: str) -> str:
         ``mod.pascalCase``-> ``mod.pascal_case``
         ``mod.ALL_CAPS`` -> ``mod.all_caps``
     """
-    chars = []
-    prev_lower = False
-    for c in s:
-        if prev_lower and c.isupper():
-            chars.append('_')
-        chars.append(c.lower())
-        prev_lower = c.islower()
-    return ''.join(chars)
+    return _snake_case_sub(s).lower()
+
+
+# Replace occurrences where a lowercase letter is followed by an uppercase letter
+_snake_case_sub = functools.partial(re.compile(r'(?<=[a-z])([A-Z])').sub, r'_\1')
 
 
 def _is_from_torch(obj: Any) -> bool:
@@ -310,7 +310,6 @@ def _parse_stack_trace(stack_trace: str):
     # stacktrace should have innermost frame last, so we
     # iterate backwards to find the first line that starts
     # with 'File '
-    summary_str = ""
     for idx in range(len(lines) - 2, -1, -1):
         line = lines[idx].strip()
         matches = pattern.match(line)
@@ -463,10 +462,10 @@ class CodeGen:
                 return s
             return f
 
-        yellow = make_wrapper_func("yellow")
-        cyan = make_wrapper_func("cyan")
+        yellow = make_wrapper_func("yellow")  # noqa: F841
+        cyan = make_wrapper_func("cyan")  # noqa: F841
         red = make_wrapper_func("red")
-        green = make_wrapper_func("green")
+        green = make_wrapper_func("green")  # noqa: F841
         dim_green = make_wrapper_func("dim_green")
         dim = make_wrapper_func("dim")
         dim_blue = make_wrapper_func("dim_blue")
@@ -1010,7 +1009,7 @@ class Graph:
 
             The newly-created and inserted node.
         """
-        assert op in ('call_function', 'call_method', 'get_attr', 'call_module', 'placeholder', 'output')
+        assert op in _legal_ops
         args = () if args is None else args
         kwargs = {} if kwargs is None else kwargs
         assert isinstance(args, tuple), "args must be a tuple"
@@ -1551,6 +1550,8 @@ class Graph:
 
         # Check targets are legit
         if self.owning_module:
+            num_warnings = 0
+            MAX_WARNINGS = 5
             for node in self.nodes:
                 if node.op == 'call_function':
                     if not callable(node.target):
@@ -1577,11 +1578,21 @@ class Graph:
                               and not isinstance(new_m_itr, torch.nn.Module)
                               and not isinstance(new_m_itr, torch.nn.Parameter)
                               and atom not in m_itr._buffers):
-                            warnings.warn(f'Node {node} target {node.target} {atom} of {seen_qualname} does '
-                                          'not reference an nn.Module, nn.Parameter, or buffer, which is '
-                                          'what \'get_attr\' Nodes typically target')
+                            if num_warnings < MAX_WARNINGS:
+                                # Don't emit this warning too frequently,
+                                # for very large graphs this can become very expensive
+                                # from a performance perspective.
+                                warnings.warn(f'Node {node} target {node.target} {atom} of {seen_qualname} does '
+                                              'not reference an nn.Module, nn.Parameter, or buffer, which is '
+                                              'what \'get_attr\' Nodes typically target')
+                            num_warnings += 1
                         else:
                             m_itr = new_m_itr
+            if num_warnings > MAX_WARNINGS:
+                warnings.warn(
+                    f'Additional {num_warnings - MAX_WARNINGS} warnings '
+                    'suppressed about get_attr references'
+                )
 
     @compatibility(is_backward_compatible=True)
     def eliminate_dead_code(self, is_impure_node: Optional[Callable[[Node], bool]] = None):
