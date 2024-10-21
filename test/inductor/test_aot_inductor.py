@@ -17,7 +17,6 @@ import torch._inductor.config
 import torch.nn as nn
 from torch._dynamo.testing import rand_strided, same
 from torch._dynamo.utils import counters
-from torch.testing._internal.logging_utils import LoggingTestCase, make_logging_test
 from torch._inductor import config
 from torch._inductor.exc import CppWrapperCodegenError
 from torch._inductor.runtime.runtime_utils import cache_dir
@@ -42,6 +41,7 @@ from torch.testing._internal.common_utils import (
     skipIfRocm,
     TEST_WITH_ROCM,
 )
+from torch.testing._internal.logging_utils import LoggingTestCase, make_logging_test
 from torch.testing._internal.triton_utils import HAS_CUDA, requires_cuda
 from torch.utils import _pytree as pytree
 
