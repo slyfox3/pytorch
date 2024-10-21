@@ -10,6 +10,7 @@ import sys
 import textwrap
 import traceback
 from contextlib import nullcontext
+from enum import Enum
 from functools import partial
 from typing import (
     Any,
@@ -3310,6 +3311,48 @@ class NonOwningLayout(Layout):
         from .utils import ALIGNMENT
 
         return V.graph.sizevars.statically_known_multiple_of(offset, ALIGNMENT)  # type: ignore[arg-type]
+
+
+class CommBufferType(Enum):
+    SYMM_MEM = "symm_mem"
+
+
+class CommBufferLayout(FixedLayout):
+    """
+    A layout that signifies the buffer is a comm buffer.
+    In terms of striding, the layout is identical to `FixedLayout`.
+
+    Buffers with this layout do not participate in in-place reuse - it can be
+    neither the source nor the target for in-place reuse.
+
+    For detailed motivation and usage of this layout, see
+    NOTE [lowering-time collective optimization].
+    """
+
+    comm_buffer_type: CommBufferType
+
+    def __init__(
+        self,
+        layout: FlexibleLayout,
+        comm_buffer_type: CommBufferType,
+        group_name: str,
+    ):
+        if not isinstance(layout, FlexibleLayout):
+            raise AssertionError(
+                "A `CommBufferLayout` can only be initialized with "
+                f"a `FlexibleLayout` (got {layout})."
+            )
+
+        fixed = layout.as_fixed()
+        super().__init__(
+            device=fixed.device,
+            dtype=fixed.dtype,
+            size=fixed.size,
+            stride=fixed.stride,
+            offset=fixed.offset,
+        )
+        self.comm_buffer_type = comm_buffer_type
+        self.group_name = group_name
 
 
 class NoneLayout(IRNode):
